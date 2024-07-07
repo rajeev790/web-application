@@ -1,0 +1,39 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Log in to Docker Hub
+        run: echo ${{ secrets.DOCKER_HUB_PASSWORD }} | docker login -u ${{ secrets.DOCKER_HUB_USERNAME }} --password-stdin
+
+      - name: Build and push Docker images
+        run: |
+          docker buildx build --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache --push --tag ${{ secrets.DOCKER_HUB_USERNAME }}/file-manager-frontend:latest ./frontend
+          docker buildx build --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache --push --tag ${{ secrets.DOCKER_HUB_USERNAME }}/file-manager-backend:latest ./backend
+
+      - name: Deploy to Google Cloud Run
+        run: |
+          gcloud auth activate-service-account --key-file=${{ secrets.GCLOUD_SERVICE_KEY }}
+          gcloud run deploy file-manager-frontend --image ${{ secrets.DOCKER_HUB_USERNAME }}/file-manager-frontend:latest --region us-central1 --platform managed --allow-unauthenticated
+          gcloud run deploy file-manager-backend --image ${{ secrets.DOCKER_HUB_USERNAME }}/file-manager-backend:latest --region us-central1 --platform managed --allow-unauthenticated
